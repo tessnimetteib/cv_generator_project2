@@ -1,305 +1,216 @@
-from django.shortcuts import render, redirect, get_object_or_404
-from django.views import View
-from django.contrib.auth.decorators import login_required
-from django.utils.decorators import method_decorator
-from django.http import JsonResponse, HttpResponse
-from django.views.decorators.http import require_POST
-from .models import (
-    CVDocument,
-    WorkExperience,
-    Education,
-    Skill,
-    KnowledgeBase
-)
-from .forms import (
-    PersonalInfoForm,
-    WorkExperienceForm,
-    EducationForm,
-    SkillForm,
-    BulkSkillsForm
-)
+"""
+CV Generator Views
+==================
 
-@method_decorator(login_required, name='dispatch')
-class CVDashboardView(View):
-    """Dashboard showing all CVs"""
-    
-    def get(self, request):
-        cvs = CVDocument.objects.filter(user=request.user)
+Complete web interface for CV generation.
+"""
+
+import logging
+import json
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
+from django.views.decorators.http import require_http_methods
+from django.db.models import Q
+from datetime import date
+
+from .models import CVDocument, Skill, WorkExperience, Education
+from .services.cv_generation_service_enhanced import EnhancedCVGenerationService
+from .forms import CVDocumentForm, SkillForm, WorkExperienceForm
+
+logger = logging.getLogger(__name__)
+
+
+@login_required
+def cv_list(request):
+    """List all user's CVs"""
+    try:
+        cvs = CVDocument.objects.filter(user=request.user).order_by('-created_at')
+        
         context = {
             'cvs': cvs,
             'total_cvs': cvs.count(),
-            'generated_cvs': cvs.filter(is_generated=True).count()
+            'generated_cvs': cvs.filter(is_generated=True).count(),
         }
-        return render(request, 'cv_gen/dashboard.html', context)
+        
+        return render(request, 'cv_gen/cv_list.html', context)
+        
+    except Exception as e:
+        logger.error(f"Error in cv_list: {e}")
+        return render(request, 'cv_gen/cv_list.html', {'error': str(e)})
 
-@method_decorator(login_required, name='dispatch')
-class CVCreateView(View):
-    """Create a new CV"""
-    
-    def get(self, request):
-        form = PersonalInfoForm()
-        context = {'form': form, 'step': 'personal_info'}
-        return render(request, 'cv_gen/create_cv.html', context)
-    
-    def post(self, request):
-        form = PersonalInfoForm(request.POST)
-        if form.is_valid():
-            cv = form.save(commit=False)
-            cv.user = request.user
-            cv.save()
-            return redirect('cv_work_experience', pk=cv.pk)
-        
-        context = {'form': form, 'step': 'personal_info'}
-        return render(request, 'cv_gen/create_cv.html', context)
 
-@method_decorator(login_required, name='dispatch')
-class AddWorkExperienceView(View):
-    """Add work experience to CV"""
-    
-    def get(self, request, pk):
-        cv = get_object_or_404(CVDocument, pk=pk, user=request.user)
-        form = WorkExperienceForm()
-        work_experiences = WorkExperience.objects.filter(cv_document=cv)
-        
-        context = {
-            'cv': cv,
-            'form': form,
-            'work_experiences': work_experiences,
-            'step': 'work_experience'
-        }
-        return render(request, 'cv_gen/add_work_experience.html', context)
-    
-    def post(self, request, pk):
-        cv = get_object_or_404(CVDocument, pk=pk, user=request.user)
-        form = WorkExperienceForm(request.POST)
-        
-        if form.is_valid():
-            job = form.save(commit=False)
-            job.cv_document = cv
-            job.save()
+@login_required
+def cv_create(request):
+    """Create new CV"""
+    try:
+        if request.method == 'POST':
+            # Get form data
+            full_name = request.POST.get('full_name')
+            email = request.POST.get('email')
+            phone = request.POST.get('phone')
+            location = request.POST.get('location')
+            professional_headline = request.POST.get('professional_headline')
+            profession = request.POST.get('profession', 'General')
+            professional_summary = request.POST.get('professional_summary', '')
+            skills_text = request.POST.get('skills', '')
             
-            # Check if user clicks "Done" button
-            if 'done' in request.POST:
-                return redirect('cv_add_education', pk=cv.pk)
+            # Create CV
+            cv = CVDocument.objects.create(
+                user=request.user,
+                full_name=full_name,
+                email=email,
+                phone=phone,
+                location=location,
+                professional_headline=professional_headline,
+                profession=profession,
+                professional_summary=professional_summary,
+            )
+            
+            logger.info(f"Created CV: {cv.id}")
+            
+            # Add skills
+            if skills_text:
+                for skill in skills_text.split(','):
+                    skill = skill.strip()
+                    if skill:
+                        Skill.objects.create(
+                            cv_document=cv,
+                            skill_name=skill,
+                            proficiency_level='Intermediate'
+                        )
+            
+            # Add work experience if provided
+            job_title = request.POST.get('job_title')
+            if job_title:
+                start_date = request.POST.get('start_date')
+                try:
+                    start_date = date.fromisoformat(start_date) if start_date else None
+                except:
+                    start_date = None
+                
+                WorkExperience.objects.create(
+                    cv_document=cv,
+                    job_title=job_title,
+                    company_name=request.POST.get('company_name', ''),
+                    location=request.POST.get('job_location', ''),
+                    start_date=start_date,
+                    job_description=request.POST.get('job_description', ''),
+                )
+            
+            return redirect('cv_preview', cv_id=cv.id)
+        
+        # GET request - show form
+        professions = CVDocument.PROFESSION_CHOICES
+        return render(request, 'cv_gen/cv_form.html', {
+            'professions': professions
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in cv_create: {e}")
+        return render(request, 'cv_gen/cv_form.html', {'error': str(e)})
+
+
+@login_required
+def cv_preview(request, cv_id):
+    """Preview and generate CV"""
+    try:
+        cv = get_object_or_404(CVDocument, id=cv_id, user=request.user)
+        
+        # Check if generation was requested
+        if request.method == 'POST' and request.POST.get('action') == 'generate':
+            logger.info(f"Generating CV: {cv.id}")
+            
+            # Initialize service
+            service = EnhancedCVGenerationService()
+            
+            # Generate full CV
+            generated_content = service.generate_full_cv(cv)
+            
+            if generated_content:
+                logger.info("CV generation successful")
+                # Refresh from DB
+                cv.refresh_from_db()
             else:
-                return redirect('cv_work_experience', pk=cv.pk)
+                logger.warning("CV generation failed")
         
-        work_experiences = WorkExperience.objects.filter(cv_document=cv)
+        # Get all data
+        skills = cv.skills.all()
+        work_experiences = cv.work_experiences.all()
+        education = cv.education.all()
+        
         context = {
             'cv': cv,
-            'form': form,
+            'skills': skills,
             'work_experiences': work_experiences,
-            'step': 'work_experience'
+            'education': education,
+            'generated_content': cv.generated_cv_content,
+            'is_generated': cv.is_generated,
         }
-        return render(request, 'cv_gen/add_work_experience.html', context)
+        
+        return render(request, 'cv_gen/cv_preview.html', context)
+        
+    except Exception as e:
+        logger.error(f"Error in cv_preview: {e}")
+        return render(request, 'cv_gen/cv_preview.html', {'error': str(e)})
 
-@method_decorator(login_required, name='dispatch')
-class AddEducationView(View):
-    """Add education to CV"""
-    
-    def get(self, request, pk):
-        cv = get_object_or_404(CVDocument, pk=pk, user=request.user)
-        form = EducationForm()
-        educations = Education.objects.filter(cv_document=cv)
-        
-        context = {
-            'cv': cv,
-            'form': form,
-            'educations': educations,
-            'step': 'education'
-        }
-        return render(request, 'cv_gen/add_education.html', context)
-    
-    def post(self, request, pk):
-        cv = get_object_or_404(CVDocument, pk=pk, user=request.user)
-        form = EducationForm(request.POST)
-        
-        if form.is_valid():
-            edu = form.save(commit=False)
-            edu.cv_document = cv
-            edu.save()
-            
-            if 'done' in request.POST:
-                return redirect('cv_add_skills', pk=cv.pk)
-            else:
-                return redirect('cv_add_education', pk=cv.pk)
-        
-        educations = Education.objects.filter(cv_document=cv)
-        context = {
-            'cv': cv,
-            'form': form,
-            'educations': educations,
-            'step': 'education'
-        }
-        return render(request, 'cv_gen/add_education.html', context)
 
-@method_decorator(login_required, name='dispatch')
-class AddSkillsView(View):
-    """Add skills to CV"""
-    
-    def get(self, request, pk):
-        cv = get_object_or_404(CVDocument, pk=pk, user=request.user)
-        form = BulkSkillsForm()
-        skills = Skill.objects.filter(cv_document=cv)
+@login_required
+def cv_edit(request, cv_id):
+    """Edit CV"""
+    try:
+        cv = get_object_or_404(CVDocument, id=cv_id, user=request.user)
         
-        context = {
-            'cv': cv,
-            'form': form,
-            'skills': skills,
-            'step': 'skills'
-        }
-        return render(request, 'cv_gen/add_skills.html', context)
-    
-    def post(self, request, pk):
-        cv = get_object_or_404(CVDocument, pk=pk, user=request.user)
-        form = BulkSkillsForm(request.POST)
-        
-        if form.is_valid():
-            # Parse skills and create Skill objects
-            technical_skills = [s.strip() for s in form.cleaned_data['technical_skills'].split(',') if s.strip()]
-            soft_skills = [s.strip() for s in form.cleaned_data['soft_skills'].split(',') if s.strip()]
-            languages = [s.strip() for s in form.cleaned_data['languages'].split(',') if s.strip()]
-            certifications = [s.strip() for s in form.cleaned_data['certifications'].split(',') if s.strip()]
-            
-            # Create Skill objects
-            for skill_name in technical_skills:
-                Skill.objects.create(
-                    cv_document=cv,
-                    skill_name=skill_name,
-                    category='Technical'
-                )
-            
-            for skill_name in soft_skills:
-                Skill.objects.create(
-                    cv_document=cv,
-                    skill_name=skill_name,
-                    category='Soft'
-                )
-            
-            for skill_name in languages:
-                Skill.objects.create(
-                    cv_document=cv,
-                    skill_name=skill_name,
-                    category='Language'
-                )
-            
-            for skill_name in certifications:
-                Skill.objects.create(
-                    cv_document=cv,
-                    skill_name=skill_name,
-                    category='Certification'
-                )
-            
-            return redirect('cv_generate', pk=cv.pk)
-        
-        skills = Skill.objects.filter(cv_document=cv)
-        context = {
-            'cv': cv,
-            'form': form,
-            'skills': skills,
-            'step': 'skills'
-        }
-        return render(request, 'cv_gen/add_skills.html', context)
-
-@method_decorator(login_required, name='dispatch')
-class GenerateCVView(View):
-    """Generate the CV"""
-    
-    def get(self, request, pk):
-        cv = get_object_or_404(CVDocument, pk=pk, user=request.user)
-        context = {'cv': cv}
-        return render(request, 'cv_gen/generate_cv.html', context)
-    
-    def post(self, request, pk):
-        cv = get_object_or_404(CVDocument, pk=pk, user=request.user)
-        
-        try:
-            # For now, just mark as generated
-            # We'll add LLM generation later
-            cv.is_generated = True
-            cv.generated_cv_content = "CV Generation Coming Soon - LLM Integration"
+        if request.method == 'POST':
+            # Update CV
+            cv.full_name = request.POST.get('full_name', cv.full_name)
+            cv.email = request.POST.get('email', cv.email)
+            cv.phone = request.POST.get('phone', cv.phone)
+            cv.location = request.POST.get('location', cv.location)
+            cv.professional_headline = request.POST.get('professional_headline', cv.professional_headline)
+            cv.profession = request.POST.get('profession', cv.profession)
+            cv.professional_summary = request.POST.get('professional_summary', cv.professional_summary)
             cv.save()
             
-            return redirect('cv_preview', pk=cv.pk)
-        
-        except Exception as e:
-            context = {
-                'cv': cv,
-                'error': str(e)
-            }
-            return render(request, 'cv_gen/generate_cv.html', context)
-
-@method_decorator(login_required, name='dispatch')
-class CVPreviewView(View):
-    """Preview generated CV"""
-    
-    def get(self, request, pk):
-        cv = get_object_or_404(CVDocument, pk=pk, user=request.user)
-        context = {'cv': cv}
-        return render(request, 'cv_gen/preview_cv.html', context)
-
-@method_decorator(login_required, name='dispatch')
-class EditWorkExperienceView(View):
-    """Edit work experience"""
-    
-    def get(self, request, cv_id, job_id):
-        cv = get_object_or_404(CVDocument, pk=cv_id, user=request.user)
-        job = get_object_or_404(WorkExperience, pk=job_id, cv_document=cv)
-        form = WorkExperienceForm(instance=job)
+            logger.info(f"Updated CV: {cv.id}")
+            return redirect('cv_preview', cv_id=cv.id)
         
         context = {
             'cv': cv,
-            'form': form,
-            'job': job
+            'professions': CVDocument.PROFESSION_CHOICES,
         }
-        return render(request, 'cv_gen/edit_work_experience.html', context)
-    
-    def post(self, request, cv_id, job_id):
-        cv = get_object_or_404(CVDocument, pk=cv_id, user=request.user)
-        job = get_object_or_404(WorkExperience, pk=job_id, cv_document=cv)
-        form = WorkExperienceForm(request.POST, instance=job)
         
-        if form.is_valid():
-            form.save()
-            return redirect('cv_work_experience', pk=cv.pk)
+        return render(request, 'cv_gen/cv_edit.html', context)
         
-        context = {
-            'cv': cv,
-            'form': form,
-            'job': job
-        }
-        return render(request, 'cv_gen/edit_work_experience.html', context)
+    except Exception as e:
+        logger.error(f"Error in cv_edit: {e}")
+        return render(request, 'cv_gen/cv_edit.html', {'error': str(e)})
+
 
 @login_required
-def delete_work_experience(request, cv_id, job_id):
-    """Delete work experience"""
-    cv = get_object_or_404(CVDocument, pk=cv_id, user=request.user)
-    job = get_object_or_404(WorkExperience, pk=job_id, cv_document=cv)
-    job.delete()
-    return redirect('cv_work_experience', pk=cv.pk)
-
-@login_required
-def delete_education(request, cv_id, edu_id):
-    """Delete education"""
-    cv = get_object_or_404(CVDocument, pk=cv_id, user=request.user)
-    edu = get_object_or_404(Education, pk=edu_id, cv_document=cv)
-    edu.delete()
-    return redirect('cv_add_education', pk=cv.pk)
-
-@login_required
-def delete_skill(request, cv_id, skill_id):
-    """Delete skill"""
-    cv = get_object_or_404(CVDocument, pk=cv_id, user=request.user)
-    skill = get_object_or_404(Skill, pk=skill_id, cv_document=cv)
-    skill.delete()
-    return redirect('cv_add_skills', pk=cv.pk)
-
-@login_required
-def download_cv_txt(request, pk):
-    """Download CV as text file"""
-    cv = get_object_or_404(CVDocument, pk=pk, user=request.user)
-    
-    response = HttpResponse(cv.generated_cv_content, content_type='text/plain')
-    response['Content-Disposition'] = f'attachment; filename="CV_{cv.full_name}.txt"'
-    
-    return response
+@require_http_methods(["POST"])
+def cv_feedback(request, cv_id):
+    """Submit feedback on generated content"""
+    try:
+        cv = get_object_or_404(CVDocument, id=cv_id, user=request.user)
+        
+        section_type = request.POST.get('section_type')
+        rating = int(request.POST.get('rating', 3))
+        feedback_text = request.POST.get('feedback_text', '')
+        suggested_improvement = request.POST.get('suggested_improvement', '')
+        
+        service = EnhancedCVGenerationService()
+        success = service.collect_user_feedback(
+            cv,
+            section_type,
+            rating,
+            feedback_text,
+            suggested_improvement
+        )
+        
+        logger.info(f"Feedback submitted: {section_type} - rating {rating}/5")
+        
+        return JsonResponse({
+            'success': success,
+            'message': 'Feedback saved! Thank you for helping us improve.' if success else 'Error saving feedback'
+        

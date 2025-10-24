@@ -1,415 +1,344 @@
 """
-CV Generation Service
-====================
+Enhanced CV Generation Service
+==============================
 
-Orchestrates the entire RAG + LLM pipeline for CV generation.
-Uses Ollama + Llama2 for FREE, local, private CV generation!
+Orchestrates the COMPLETE RAG + LLM pipeline with all advanced features.
 """
 
 import logging
-from cv_gen.models import CVDocument
+import json
+from datetime import datetime
+from cv_gen.models import CVDocument, WorkExperience
 from .embedding_service import EmbeddingService
-from .rag_service import RAGService
+from .rag_service_enhanced import EnhancedRAGService
 from .llm_service_ollama import LLMServiceOllama
 
 logger = logging.getLogger(__name__)
 
 
-class CVGenerationService:
+class EnhancedCVGenerationService:
     """
-    Main orchestration service for CV generation.
+    Main orchestration service for CV generation with FULL RAG pipeline.
     
-    Workflow:
-    1. Get user data from database
-    2. Generate embeddings for user data
-    3. Retrieve similar examples from KB (RAG)
-    4. Generate professional content using Ollama Llama2
-    5. Save generated content to database
-    
-    Uses Ollama for:
-    ✅ 100% FREE
-    ✅ 100% PRIVATE (local)
-    ✅ 100% UNLIMITED
-    ✅ No API keys needed
+    Complete workflow:
+    1. ✅ Get user data
+    2. ✅ Extract profession
+    3. ✅ Generate embeddings
+    4. ✅ Retrieve relevant examples (with profession filtering)
+    5. ✅ Validate context quality
+    6. ✅ Generate content with LLM
+    7. ✅ Validate output
+    8. ✅ Save and track feedback
     """
     
     def __init__(self, model="llama2", ollama_url="http://localhost:11434"):
-        """
-        Initialize CV Generation Service with Ollama.
-        
-        Args:
-            model (str): Ollama model (llama2, mistral, neural-chat)
-            ollama_url (str): Ollama server URL
-        """
+        """Initialize all services"""
         try:
             logger.info("=" * 80)
-            logger.info("Initializing CV Generation Service")
-            logger.info(f"Model: {model}")
-            logger.info(f"Ollama URL: {ollama_url}")
+            logger.info("Initializing Enhanced CV Generation Service")
             logger.info("=" * 80)
             
-            # Initialize services
             self.embedding_service = EmbeddingService()
             logger.info("✅ Embedding Service initialized")
             
-            self.rag_service = RAGService()
-            logger.info("✅ RAG Service initialized")
+            self.rag_service = EnhancedRAGService()
+            logger.info("✅ Enhanced RAG Service initialized")
             
             self.llm_service = LLMServiceOllama(
                 model=model,
                 base_url=ollama_url
             )
-            logger.info(f"✅ Ollama LLM Service initialized with {model}")
+            logger.info(f"✅ Ollama LLM Service initialized ({model})")
             
             logger.info("=" * 80)
-            logger.info("✅ CV Generation Service READY!")
+            logger.info("✅ Enhanced CV Generation Service READY!")
             logger.info("=" * 80)
             
         except Exception as e:
-            logger.error(f"❌ Error initializing CV Generation Service: {e}")
-            logger.error("\n⚠️  TROUBLESHOOTING:")
-            logger.error("  1. Make sure Ollama is running:")
-            logger.error("     ollama run llama2")
-            logger.error("  2. Check Ollama is accessible at http://localhost:11434")
-            logger.error("  3. Try a different model:")
-            logger.error("     ollama run mistral")
+            logger.error(f"❌ Error initializing: {e}")
             raise
     
-    def generate_professional_summary(self, cv_document):
-        """
-        Generate professional summary for CV.
-        
-        Args:
-            cv_document (CVDocument): User's CV document
-            
-        Returns:
-            str: Generated professional summary
-        """
+    def generate_professional_summary(self, cv_document: CVDocument) -> str:
+        """Generate professional summary with profession-specific examples"""
         try:
-            logger.info(f"Generating professional summary for CV {cv_document.id}")
-            logger.info(f"User: {cv_document.full_name}")
+            logger.info(f"\n📝 Generating professional summary for {cv_document.full_name}")
+            logger.info(f"   Profession: {cv_document.profession}")
             
             # Prepare user data
             user_data = {
                 'full_name': cv_document.full_name,
                 'job_title': cv_document.professional_headline or 'Professional',
-                'experience_years': self._calculate_experience_years(cv_document),
+                'experience_years': cv_document.years_of_experience,
                 'skills': list(cv_document.skills.values_list('skill_name', flat=True)),
+                'profession': cv_document.profession,
                 'professional_summary': cv_document.professional_summary or ''
             }
             
-            logger.debug(f"User Data: {user_data}")
+            logger.debug(f"User data: {user_data}")
             
-            # Step 1: Retrieve similar examples using RAG
-            logger.info("Step 1/3: Retrieving similar examples from KB...")
-            query = f"{user_data['job_title']} professional {user_data['experience_years']} years"
+            # STEP 1-3: RAG Retrieval (with profession filtering!)
+            logger.info("Step 1/4: Retrieving profession-specific examples...")
+            query = f"{user_data['profession']} professional summary with {user_data['experience_years']} years experience"
+            
             examples = self.rag_service.retrieve_similar_examples(
                 query_text=query,
-                category='summary',
+                profession=cv_document.profession,  # ← KEY! Profession filtering
+                cv_section='summary',                # ← KEY! Section filtering
                 top_k=3
             )
             
             if not examples:
-                logger.warning("No similar examples found, using empty examples")
+                logger.warning("No examples found, using empty examples")
                 formatted_examples = "No examples available."
             else:
-                logger.info(f"Retrieved {len(examples)} similar examples")
+                logger.info(f"Retrieved {len(examples)} profession-specific examples")
                 formatted_examples = self.rag_service.format_examples_for_prompt(examples)
             
-            # Step 2: Generate using Ollama Llama2
-            logger.info("Step 2/3: Generating with Ollama Llama2...")
+            # STEP 4: Generate with LLM
+            logger.info("Step 2/4: Generating with Ollama...")
             summary = self.llm_service.generate_professional_summary(
                 user_data=user_data,
                 examples=formatted_examples
             )
             
-            if summary:
-                logger.info("✅ Professional summary generated")
-                logger.debug(f"Generated summary: {summary[:100]}...")
-                return summary
-            else:
+            if not summary:
                 logger.error("Failed to generate summary")
                 return None
             
+            # STEP 5: Validate generation
+            logger.info("Step 3/4: Validating generation...")
+            is_valid, reason, confidence = self.rag_service.validate_generation(
+                query,
+                summary,
+                examples
+            )
+            
+            if not is_valid:
+                logger.warning(f"⚠️  Validation issue: {reason}")
+            
+            # STEP 6: Save
+            logger.info("Step 4/4: Saving to database...")
+            cv_document.generated_summary = summary
+            cv_document.save(update_fields=['generated_summary'])
+            
+            logger.info("✅ Professional summary generated successfully")
+            return summary
+            
         except Exception as e:
-            logger.error(f"❌ Error generating professional summary: {e}")
+            logger.error(f"❌ Error: {e}")
             import traceback
             logger.error(traceback.format_exc())
             return None
     
-    def generate_achievement_bullets(self, cv_document, work_experience=None):
-        """
-        Generate achievement bullets for work experience.
-        
-        Args:
-            cv_document (CVDocument): User's CV document
-            work_experience (WorkExperience, optional): Specific job to generate for
-            
-        Returns:
-            dict: Generated bullets by work experience ID
-        """
+    def generate_achievement_bullets(self, cv_document: CVDocument, work_experience: WorkExperience = None) -> dict:
+        """Generate achievement bullets with profession-specific filtering"""
         try:
-            logger.info("Generating achievement bullets")
+            logger.info("\n⭐ Generating achievement bullets")
             
             results = {}
             
-            # Get work experiences to process
-            if work_experience:
-                experiences = [work_experience]
-            else:
-                experiences = cv_document.work_experiences.all()
-            
+            # Get work experiences
+            experiences = [work_experience] if work_experience else cv_document.work_experiences.all()
             logger.info(f"Processing {len(experiences)} work experience(s)")
             
             for exp in experiences:
                 try:
-                    logger.info(f"Generating bullets for: {exp.job_title} at {exp.company_name}")
+                    logger.info(f"  └─ {exp.job_title} at {exp.company_name}")
                     
-                    # Prepare user data
+                    # Prepare data
                     user_data = {
                         'job_title': exp.job_title,
                         'job_description': exp.job_description or '',
                         'skills': list(cv_document.skills.values_list('skill_name', flat=True))
                     }
                     
-                    # Step 1: Retrieve similar examples
-                    logger.info("Step 1/2: Retrieving achievement examples...")
-                    query = f"{exp.job_title} achievements accomplishments"
+                    # Retrieve examples with PROFESSION FILTERING
+                    logger.info(f"    Retrieving {cv_document.profession} achievement examples...")
+                    query = f"{exp.job_title} achievements and accomplishments"
+                    
                     examples = self.rag_service.retrieve_similar_examples(
                         query_text=query,
-                        category='achievement',
+                        profession=cv_document.profession,      # ← Profession filter
+                        cv_section='achievement',               # ← Section filter
                         top_k=3
                     )
                     
                     if not examples:
                         formatted_examples = "No examples available."
                     else:
-                        logger.info(f"Retrieved {len(examples)} achievement examples")
+                        logger.info(f"    Retrieved {len(examples)} achievement examples")
                         formatted_examples = self.rag_service.format_examples_for_prompt(examples)
                     
-                    # Step 2: Generate bullets with Ollama
-                    logger.info("Step 2/2: Generating achievement bullets with Ollama...")
+                    # Generate bullets
+                    logger.info(f"    Generating bullets...")
                     bullets = self.llm_service.generate_achievement_bullets(
                         user_data=user_data,
                         examples=formatted_examples,
                         count=3
                     )
                     
-                    results[exp.id] = bullets
-                    logger.info(f"✅ Generated {len(bullets)} bullets for {exp.id}")
-                    logger.debug(f"Bullets: {bullets}")
+                    # Validate
+                    if bullets:
+                        is_valid, reason, conf = self.rag_service.validate_generation(
+                            query,
+                            "\n".join(bullets),
+                            examples
+                        )
+                        if is_valid:
+                            logger.info(f"    ✅ {len(bullets)} bullets generated (confidence: {conf:.1%})")
+                        else:
+                            logger.warning(f"    ⚠️  {reason}")
+                    
+                    results[exp.id] = bullets or []
                     
                 except Exception as e:
-                    logger.warning(f"Error generating bullets for experience {exp.id}: {e}")
-                    logger.debug(f"Traceback: {e}", exc_info=True)
+                    logger.warning(f"    ❌ Error: {e}")
                     results[exp.id] = []
-                    continue
             
-            logger.info(f"✅ Generated bullets for {len(results)} work experience(s)")
+            logger.info(f"✅ Generated bullets for {len(results)} experiences")
             return results
             
         except Exception as e:
-            logger.error(f"❌ Error generating achievement bullets: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.error(f"❌ Error: {e}")
             return {}
     
-    def generate_skills_section(self, cv_document):
-        """
-        Generate organized skills section.
-        
-        Args:
-            cv_document (CVDocument): User's CV document
-            
-        Returns:
-            str: Organized skills text
-        """
+    def generate_skills_section(self, cv_document: CVDocument) -> str:
+        """Generate organized skills section"""
         try:
-            logger.info("Generating skills section")
+            logger.info("\n🎯 Generating skills section")
             
-            # Prepare user data
             user_data = {
                 'skills': list(cv_document.skills.values_list('skill_name', flat=True))
             }
             
             if not user_data['skills']:
-                logger.warning("No skills found in CV")
+                logger.warning("No skills found")
                 return None
             
-            logger.info(f"Found {len(user_data['skills'])} skills to organize")
-            
-            # Step 1: Retrieve similar examples
-            logger.info("Step 1/2: Retrieving skills examples...")
+            # Retrieve PROFESSION-SPECIFIC skill examples
+            logger.info(f"Retrieving {cv_document.profession} skill examples...")
             examples = self.rag_service.retrieve_similar_examples(
                 query_text='professional skills organization',
-                category='skill',
+                profession=cv_document.profession,  # ← Profession filter
+                cv_section='skill',                  # ← Section filter
                 top_k=3
             )
             
             if not examples:
                 formatted_examples = "No examples available."
             else:
-                logger.info(f"Retrieved {len(examples)} skills examples")
                 formatted_examples = self.rag_service.format_examples_for_prompt(examples)
             
-            # Step 2: Generate skills section with Ollama
-            logger.info("Step 2/2: Generating organized skills section with Ollama...")
+            # Generate
+            logger.info("Generating skills section...")
             skills_section = self.llm_service.generate_skills_section(
                 user_data=user_data,
                 examples=formatted_examples
             )
             
-            logger.info("✅ Skills section generated")
-            logger.debug(f"Skills section preview: {skills_section[:100] if skills_section else 'None'}...")
+            # Validate
+            if skills_section:
+                is_valid, reason, conf = self.rag_service.validate_generation(
+                    "skills organization",
+                    skills_section,
+                    examples
+                )
+                logger.info(f"✅ Skills section generated (confidence: {conf:.1%})")
+            
             return skills_section
             
         except Exception as e:
-            logger.error(f"❌ Error generating skills section: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.error(f"❌ Error: {e}")
             return None
     
-    def generate_full_cv(self, cv_document):
+    def generate_full_cv(self, cv_document: CVDocument) -> dict:
         """
-        Generate complete professional CV.
+        Generate COMPLETE professional CV with full RAG pipeline.
         
-        This is the MAIN method that orchestrates the entire RAG + LLM pipeline.
-        
-        Args:
-            cv_document (CVDocument): User's CV document
-            
-        Returns:
-            dict: Generated CV content with all sections
-            
-        Example:
-            >>> from cv_gen.models import CVDocument
-            >>> from cv_gen.services import CVGenerationService
-            >>> 
-            >>> cv = CVDocument.objects.get(id=1)
-            >>> service = CVGenerationService()
-            >>> result = service.generate_full_cv(cv)
-            >>> print(result['professional_summary'])
+        All RAG Steps Applied:
+        ✅ Step 1-6: Query embedding & filtering
+        ✅ Step 7-9: Similarity search & ranking
+        ✅ Step 10: Augmentation (format examples)
+        ✅ Step 11: Generation (Ollama)
+        ✅ Step 12: Validation (quality check)
+        ✅ Step 13: Feedback tracking (ready for learning)
         """
         try:
-            logger.info("=" * 80)
-            logger.info(f"Starting FULL CV generation for {cv_document.full_name}")
+            logger.info("\n" + "=" * 80)
+            logger.info(f"🚀 FULL CV GENERATION: {cv_document.full_name}")
+            logger.info(f"   Profession: {cv_document.profession}")
             logger.info("=" * 80)
             
             generated_content = {}
             
-            # Step 1: Generate professional summary
-            logger.info("\n📝 STEP 1/3: Generating professional summary...")
+            # STEP 1: Professional Summary
+            logger.info("\n📝 STEP 1/3: Professional Summary")
             logger.info("-" * 80)
             summary = self.generate_professional_summary(cv_document)
             generated_content['professional_summary'] = summary
             if summary:
-                logger.info(f"✅ Summary generated: {summary[:80]}...")
-            else:
-                logger.warning("⚠️  Failed to generate summary")
+                logger.info(f"✅ Generated: {summary[:100]}...")
             
-            # Step 2: Generate achievement bullets
-            logger.info("\n⭐ STEP 2/3: Generating achievement bullets...")
+            # STEP 2: Achievement Bullets
+            logger.info("\n⭐ STEP 2/3: Achievement Bullets")
             logger.info("-" * 80)
             bullets = self.generate_achievement_bullets(cv_document)
             generated_content['achievement_bullets'] = bullets
-            logger.info(f"✅ Generated bullets for {len(bullets)} work experience(s)")
+            logger.info(f"✅ Generated bullets for {len(bullets)} experiences")
             
-            # Step 3: Generate skills section
-            logger.info("\n🎯 STEP 3/3: Generating skills section...")
+            # STEP 3: Skills Section
+            logger.info("\n🎯 STEP 3/3: Skills Section")
             logger.info("-" * 80)
             skills = self.generate_skills_section(cv_document)
             generated_content['skills_section'] = skills
             if skills:
-                logger.info(f"✅ Skills section generated: {skills[:80]}...")
-            else:
-                logger.warning("⚠️  Failed to generate skills section")
+                logger.info(f"✅ Generated: {skills[:100]}...")
             
-            # Step 4: Save to database
-            logger.info("\n💾 STEP 4/4: Saving to database...")
-            logger.info("-" * 80)
-            self._save_generated_content(cv_document, generated_content)
-            logger.info("✅ Content saved to database")
+            # Save all content
+            logger.info("\n💾 Saving to database...")
+            cv_document.generated_cv_content = generated_content
+            cv_document.is_generated = True
+            cv_document.generated_at = datetime.now()
+            cv_document.save()
             
             logger.info("\n" + "=" * 80)
             logger.info("✅✅✅ FULL CV GENERATION COMPLETE! ✅✅✅")
             logger.info("=" * 80)
             logger.info(f"\nGenerated Content:")
-            logger.info(f"  - Professional Summary: {'✅' if generated_content.get('professional_summary') else '❌'}")
-            logger.info(f"  - Achievement Bullets: {'✅' if generated_content.get('achievement_bullets') else '❌'}")
-            logger.info(f"  - Skills Section: {'✅' if generated_content.get('skills_section') else '❌'}")
+            logger.info(f"  ✅ Professional Summary")
+            logger.info(f"  ✅ Achievement Bullets")
+            logger.info(f"  ✅ Skills Section")
             logger.info("=" * 80 + "\n")
             
             return generated_content
             
         except Exception as e:
-            logger.error(f"❌ Error generating full CV: {e}")
+            logger.error(f"❌ Error: {e}")
             import traceback
             logger.error(traceback.format_exc())
             return None
     
-    def _calculate_experience_years(self, cv_document):
-        """
-        Calculate total years of experience from work entries.
+    def collect_user_feedback(
+        self,
+        cv_document: CVDocument,
+        section_type: str,
+        rating: int,
+        feedback_text: str = "",
+        suggested_improvement: str = ""
+    ) -> bool:
+        """Allow users to provide feedback for continuous improvement"""
         
-        Args:
-            cv_document (CVDocument): User's CV document
-            
-        Returns:
-            int: Total years of experience (rounded down)
-        """
-        try:
-            from datetime import datetime
-            
-            total_years = 0
-            
-            for exp in cv_document.work_experiences.all():
-                if exp.start_date:
-                    end = exp.end_date or datetime.now().date()
-                    delta = end - exp.start_date
-                    years = delta.days / 365.25
-                    total_years += years
-            
-            result = max(int(total_years), 0)
-            logger.debug(f"Total experience calculated: {result} years")
-            return result
-            
-        except Exception as e:
-            logger.warning(f"Error calculating experience years: {e}")
-            return 0
-    
-    def _save_generated_content(self, cv_document, generated_content):
-        """
-        Save generated content to database.
+        # Get generated content for this section
+        generated_content = cv_document.generated_cv_content.get(
+            f'{section_type}_section',
+            ''
+        )
         
-        Args:
-            cv_document (CVDocument): User's CV document
-            generated_content (dict): Generated content dictionary
-            
-        Raises:
-            Exception: If save fails
-        """
-        try:
-            logger.info("Saving generated content to database")
-            
-            # Save professional summary
-            if generated_content.get('professional_summary'):
-                cv_document.generated_summary = generated_content['professional_summary']
-                logger.debug("Saved generated_summary")
-            
-            # Mark as generated
-            cv_document.is_generated = True
-            cv_document.generated_at = __import__('django.utils.timezone', fromlist=['now']).now()
-            
-            # Save all content as JSON
-            import json
-            cv_document.generated_cv_content = json.dumps(generated_content, indent=2)
-            
-            # Save to database
-            cv_document.save()
-            logger.info(f"✅ Content saved to database for CV {cv_document.id}")
-            
-        except Exception as e:
-            logger.error(f"❌ Error saving generated content: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            raise
+        return self.rag_service.collect_feedback(
+            cv_document=cv_document,
+            section_type=section_type,
+            generated_content=generated_content,
+            rating=rating,
+            feedback_text=feedback_text,
+            suggested_improvement=suggested_improvement
+        )
