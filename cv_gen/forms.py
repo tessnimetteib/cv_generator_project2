@@ -131,9 +131,12 @@ class EducationForm(forms.ModelForm):
                 'class': 'form-control',
                 'type': 'date'
             }),
-            'gpa': forms.DecimalInput(attrs={
+            'gpa': forms.NumberInput(attrs={  # ✅ FIXED: Changed from DecimalInput to NumberInput
                 'class': 'form-control',
                 'placeholder': '3.8',
+                'step': '0.01',
+                'min': '0',
+                'max': '4',
                 'required': False
             }),
             'honors': forms.TextInput(attrs={

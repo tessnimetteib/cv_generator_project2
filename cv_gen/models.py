@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import User
 import json
 
+
 class CVDocument(models.Model):
     """Main CV document model"""
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -15,11 +16,14 @@ class CVDocument(models.Model):
     professional_summary = models.TextField(blank=True)
     
     # Generated Content
-    generated_summary = models.TextField(blank=True)
-    generated_cv_content = models.TextField(blank=True)
+    generated_summary = models.TextField(blank=True, null=True)
+    generated_cv_content = models.TextField(blank=True, null=True)
+    generated_professional_summary = models.TextField(blank=True, null=True)
     
     # Status
     is_generated = models.BooleanField(default=False)
+    generated_at = models.DateTimeField(blank=True, null=True)
+    
     cv_format = models.CharField(
         max_length=10,
         choices=[('HTML', 'HTML'), ('PDF', 'PDF'), ('DOCX', 'DOCX')],
@@ -58,7 +62,7 @@ class WorkExperience(models.Model):
     technologies = models.TextField()  # Comma-separated
     
     # Generated content
-    generated_bullets = models.TextField(blank=True)
+    generated_bullets = models.TextField(blank=True, null=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     
@@ -91,7 +95,7 @@ class Education(models.Model):
     relevant_coursework = models.TextField(blank=True)
     
     # Generated content
-    generated_section = models.TextField(blank=True)
+    generated_section = models.TextField(blank=True, null=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     
