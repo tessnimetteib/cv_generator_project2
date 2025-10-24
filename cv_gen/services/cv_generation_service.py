@@ -10,7 +10,7 @@ import json
 from datetime import datetime
 from cv_gen.models import CVDocument, WorkExperience
 from .embedding_service import EmbeddingService
-from .rag_service_enhanced import EnhancedRAGService
+from .rag_service import EnhancedRAGService
 from .llm_service_ollama import LLMServiceOllama
 
 logger = logging.getLogger(__name__)

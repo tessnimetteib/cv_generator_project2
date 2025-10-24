@@ -1,20 +1,22 @@
 # -*- coding: utf-8 -*-
 import os
+import sys
+import django
+
+# Setup Django BEFORE any imports
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'cv_analyzer.settings')
+django.setup()
+
+# NOW import models
 import pdfplumber
-import pandas as pd
 from sentence_transformers import SentenceTransformer
 from cv_gen.models import KnowledgeBase
 import re
 from tqdm import tqdm
-import django
-
-# Setup Django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'cv_analyzer.settings')
-django.setup()
+import json
 
 # Configuration
 PDF_BASE_PATH = r"C:\Users\DELL\Desktop\resume_dataset\data\data"
-CSV_PATH = r"C:\Users\DELL\Desktop\resume_dataset\Resume\Resume.csv"
 
 class ResumeParser:
     """Parse resume text and extract sections"""
@@ -131,7 +133,7 @@ class PDFImporter:
         total_entries = 0
         
         print(f"\n{'='*80}")
-        print(f"Starting PDF Import: {len(categories)} categories, 2,484 PDFs")
+        print(f"Starting PDF Import: {len(categories)} categories")
         print(f"{'='*80}\n")
         
         for category in sorted(categories):
@@ -141,6 +143,9 @@ class PDFImporter:
                 continue
             
             pdf_files = [f for f in os.listdir(category_path) if f.endswith('.pdf')]
+            
+            if not pdf_files:
+                continue
             
             print(f"\n📂 Processing {category}: {len(pdf_files)} PDFs")
             
@@ -202,7 +207,7 @@ class PDFImporter:
                     'category': 'summary',
                     'role_type': self._map_role_type(category),
                     'industry': category.lower(),
-                    'embedding_vector': ','.join([str(float(x)) for x in embedding])
+                    'embedding_vector': json.dumps(embedding.tolist())
                 })
             
             # 2. Achievement Entries
@@ -217,7 +222,7 @@ class PDFImporter:
                             'category': 'achievement',
                             'role_type': self._map_role_type(category),
                             'industry': category.lower(),
-                            'embedding_vector': ','.join([str(float(x)) for x in embedding])
+                            'embedding_vector': json.dumps(embedding.tolist())
                         })
                     except:
                         pass
@@ -234,7 +239,7 @@ class PDFImporter:
                         'category': 'skill',
                         'role_type': self._map_role_type(category),
                         'industry': category.lower(),
-                        'embedding_vector': ','.join([str(float(x)) for x in embedding])
+                        'embedding_vector': json.dumps(embedding.tolist())
                     })
             
             # 4. Job Responsibility Entry
@@ -249,7 +254,7 @@ class PDFImporter:
                         'category': 'best_practice',
                         'role_type': self._map_role_type(category),
                         'industry': category.lower(),
-                        'embedding_vector': ','.join([str(float(x)) for x in embedding])
+                        'embedding_vector': json.dumps(embedding.tolist())
                     })
         except Exception as e:
             print(f"Error creating KB entries: {e}")
@@ -261,7 +266,7 @@ class PDFImporter:
         mapping = {
             'INFORMATION-TECHNOLOGY': 'backend_developer',
             'ENGINEERING': 'backend_developer',
-            'FINANCE': 'backend_developer',
+            'FINANCE': 'accountant',
             'DESIGNER': 'designer',
             'DIGITAL-MEDIA': 'designer',
             'HR': 'manager',

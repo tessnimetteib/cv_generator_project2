@@ -15,8 +15,7 @@ from django.db.models import Q
 from datetime import date
 
 from .models import CVDocument, Skill, WorkExperience, Education
-from .services.cv_generation_service_enhanced import EnhancedCVGenerationService
-from .forms import CVDocumentForm, SkillForm, WorkExperienceForm
+from .services.cv_generation_service import EnhancedCVGenerationService
 
 logger = logging.getLogger(__name__)
 
@@ -213,4 +212,47 @@ def cv_feedback(request, cv_id):
         return JsonResponse({
             'success': success,
             'message': 'Feedback saved! Thank you for helping us improve.' if success else 'Error saving feedback'
+        })
         
+    except Exception as e:
+        logger.error(f"Error in cv_feedback: {e}")
+        return JsonResponse({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        })
+
+
+@login_required
+def cv_delete(request, cv_id):
+    """Delete a CV"""
+    try:
+        cv = get_object_or_404(CVDocument, id=cv_id, user=request.user)
+        
+        if request.method == 'POST':
+            cv_name = cv.full_name
+            cv.delete()
+            logger.info(f"Deleted CV: {cv_name}")
+            return redirect('cv_list')
+        
+        return render(request, 'cv_gen/cv_confirm_delete.html', {'cv': cv})
+        
+    except Exception as e:
+        logger.error(f"Error in cv_delete: {e}")
+        return redirect('cv_list')
+
+
+@login_required
+def home(request):
+    """Home page"""
+    try:
+        user_cvs = CVDocument.objects.filter(user=request.user).count()
+        
+        context = {
+            'user_cvs': user_cvs,
+        }
+        
+        return render(request, 'cv_gen/home.html', context)
+        
+    except Exception as e:
+        logger.error(f"Error in home: {e}")
+        return render(request, 'cv_gen/home.html', {'error': str(e)})

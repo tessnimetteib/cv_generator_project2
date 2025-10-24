@@ -2,23 +2,21 @@
 CV Generation Services
 =====================
 
-This package contains all services for CV generation:
-- Embedding Service: Convert text to vectors
-- RAG Service: Retrieve similar examples from KB
-- LLM Service Ollama: Call Llama2 locally (FREE!)
-- CV Generation Service: Orchestrate everything
+All services for RAG + LLM CV generation:
+- EmbeddingService: Convert text to vectors
+- EnhancedRAGService: Full RAG with profession filtering
+- LLMServiceOllama: Ollama + Llama2 integration
+- EnhancedCVGenerationService: Main orchestration
 """
 
-# Import services
 from .embedding_service import EmbeddingService
-from .rag_service import RAGService
+from .rag_service import EnhancedRAGService
 from .llm_service_ollama import LLMServiceOllama
-from .cv_generation_service import CVGenerationService
+from .cv_generation_service import EnhancedCVGenerationService
 
-# Public API
 __all__ = [
     'EmbeddingService',
-    'RAGService',
+    'EnhancedRAGService',
     'LLMServiceOllama',
-    'CVGenerationService',
+    'EnhancedCVGenerationService',
 ]
