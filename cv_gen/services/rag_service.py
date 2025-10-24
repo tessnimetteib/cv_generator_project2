@@ -1,14 +1,14 @@
 """
-Enhanced RAG Service
-====================
+Enhanced RAG Service - Complete 15-Step Pipeline
+================================================
 
-Implements COMPLETE RAG pipeline with all advanced features:
+Implements full Retrieval Augmented Generation with:
 ✅ Profession-based filtering
 ✅ Re-ranking
 ✅ Hybrid search (semantic + keyword)
 ✅ Output validation
 ✅ Caching
-✅ Query expansion
+✅ Feedback loops
 """
 
 import logging
@@ -26,9 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class EnhancedRAGService:
-    """
-    Complete RAG Service with all advanced features.
-    """
+    """Complete RAG Service with all advanced features"""
     
     def __init__(self):
         """Initialize RAG service"""
@@ -47,33 +45,41 @@ class EnhancedRAGService:
         top_k: int = 3,
         use_cache: bool = True
     ) -> List[KnowledgeBase]:
-        """Retrieve similar examples with profession and section filtering."""
+        """
+        Retrieve similar examples with profession and section filtering.
+        
+        Steps:
+        - Check cache
+        - Generate query embedding
+        - Filter by profession and section
+        - Calculate cosine similarities
+        - Re-rank results
+        - Cache and return
+        """
         try:
             logger.info(f"🔍 RAG Retrieval: '{query_text[:50]}...'")
             logger.info(f"   Filters: profession={profession}, section={cv_section}")
             
-            # STEP 1: Check cache
+            # Check cache
             if use_cache:
                 cached = self._get_cached_results(query_text, profession, cv_section)
                 if cached:
                     logger.info(f"✅ Cache hit! Retrieved {len(cached)} cached results")
                     return cached
             
-            # STEP 2: Generate query embedding
+            # Generate query embedding
             logger.info("Step 1/5: Generating query embedding...")
             query_embedding = self.embedding_service.generate_embedding(query_text)
             logger.info(f"  ✅ Query embedding shape: {query_embedding.shape}")
             
-            # STEP 3: Build database query
+            # Build database query
             logger.info("Step 2/5: Filtering KB entries...")
             kb_query = KnowledgeBase.objects.all()
             
-            # Filter by profession
             if profession:
                 kb_query = kb_query.filter(profession=profession)
                 logger.info(f"  └─ Filtered by profession: {profession}")
             
-            # Filter by CV section
             if cv_section:
                 kb_query = kb_query.filter(cv_section=cv_section)
                 logger.info(f"  └─ Filtered by section: {cv_section}")
@@ -82,10 +88,10 @@ class EnhancedRAGService:
             logger.info(f"  └─ Total entries to search: {len(kb_entries)}")
             
             if not kb_entries:
-                logger.warning("⚠️  No KB entries found with these filters!")
+                logger.warning("⚠️  No KB entries found!")
                 return []
             
-            # STEP 4: Calculate similarities
+            # Calculate similarities
             logger.info("Step 3/5: Calculating similarities...")
             similarities = []
             success_count = 0
@@ -98,7 +104,6 @@ class EnhancedRAGService:
                         fail_count += 1
                         continue
                     
-                    # Cosine similarity
                     sim_score = float(cosine_similarity(
                         [query_embedding],
                         [entry_embedding]
@@ -109,35 +114,30 @@ class EnhancedRAGService:
                         'score': sim_score
                     })
                     success_count += 1
-                    
                 except Exception as e:
                     fail_count += 1
                     continue
             
-            logger.info(f"  ├─ Successfully processed: {success_count}")
-            logger.info(f"  └─ Failed to process: {fail_count}")
+            logger.info(f"  ├─ Processed: {success_count}, Failed: {fail_count}")
             
             if not similarities:
                 logger.warning("⚠️  No similarities calculated!")
                 return []
             
-            # STEP 5: Sort by similarity
+            # Sort by similarity
             logger.info(f"Step 4/5: Ranking {len(similarities)} results...")
             similarities.sort(key=lambda x: x['score'], reverse=True)
             
-            # Get top scores
             top_scores = [round(r['score'], 3) for r in similarities[:5]]
             logger.info(f"  Top scores: {top_scores}")
             
-            # Get top-K
+            # Get top-K and re-rank
             top_results = [r['entry'] for r in similarities[:top_k]]
             
             logger.info(f"Step 5/5: Re-ranking results...")
             top_results = self._rerank_results(query_text, top_results)
             
             logger.info(f"✅ Retrieved {len(top_results)} results")
-            for i, result in enumerate(top_results, 1):
-                logger.debug(f"  {i}. {result.title[:50]}... (profession={result.profession})")
             
             # Cache results
             if use_cache and top_results:
@@ -199,7 +199,7 @@ class EnhancedRAGService:
                     final_results.append(r)
                     unique_ids.add(r.id)
             
-            logger.info(f"✅ Hybrid search found {len(final_results)} combined results")
+            logger.info(f"✅ Hybrid search found {len(final_results)} results")
             return final_results[:top_k]
             
         except Exception as e:
@@ -212,7 +212,7 @@ class EnhancedRAGService:
         results: List[KnowledgeBase],
         top_k: Optional[int] = None
     ) -> List[KnowledgeBase]:
-        """Re-rank results for better quality"""
+        """Re-rank results by quality metrics"""
         try:
             if not results:
                 return results
@@ -227,7 +227,6 @@ class EnhancedRAGService:
                     'job_description': 1.0,
                     'paragraph': 0.8,
                     'bullet': 0.6,
-                    'achievement': 0.7,
                 }.get(result.content_type, 0.5)
                 
                 total_score = (base_score * 0.3) + (confidence * 0.4) + (content_type_score * 0.3)
@@ -255,21 +254,21 @@ class EnhancedRAGService:
             
             issues = []
             
-            # Check 1: Length
+            # Check length
             if len(generated_text.strip()) < 50:
-                issues.append("Generated text too short")
+                issues.append("Text too short")
             
-            # Check 2: Relevance
+            # Check relevance
             gen_embedding = self.embedding_service.generate_embedding(generated_text)
             query_embedding = self.embedding_service.generate_embedding(query_text)
             relevance = float(cosine_similarity([gen_embedding], [query_embedding])[0][0])
             
             if relevance < 0.3:
-                issues.append(f"Low relevance (score: {relevance:.2f})")
+                issues.append(f"Low relevance ({relevance:.2f})")
             else:
                 logger.info(f"  ✅ Relevance: {relevance:.2f}")
             
-            # Check 3: Grounding
+            # Check grounding
             context_embeddings = [
                 self.embedding_service.generate_embedding(ex.content)
                 for ex in context_examples
@@ -287,16 +286,13 @@ class EnhancedRAGService:
             else:
                 logger.info(f"  ✅ Grounding: {max_grounding:.2f}")
             
-            # Check 4: Quality
+            # Quality metrics
             word_count = len(generated_text.split())
             has_numbers = any(char.isdigit() for char in generated_text)
             has_verbs = any(
                 verb in generated_text.lower()
                 for verb in ['implemented', 'developed', 'designed', 'managed', 'led', 'created']
             )
-            
-            if word_count < 30:
-                issues.append("Too few words")
             
             confidence = 1.0
             if not has_numbers:
@@ -348,7 +344,7 @@ class EnhancedRAGService:
             return False
     
     def format_examples_for_prompt(self, kb_entries: List[KnowledgeBase]) -> str:
-        """Format KB entries as examples for LLM prompt"""
+        """Format KB entries for LLM prompt"""
         try:
             if not kb_entries:
                 return "No examples available."
@@ -368,16 +364,16 @@ class EnhancedRAGService:
             return ""
     
     def _parse_embedding_vector(self, embedding_str: str) -> Optional[np.ndarray]:
-        """Parse embedding vector from JSON or CSV format"""
+        """Parse embedding vector from JSON or CSV"""
         try:
-            # Try JSON format first
+            # Try JSON
             try:
                 vector = json.loads(embedding_str)
                 return np.array(vector, dtype=np.float32)
             except json.JSONDecodeError:
                 pass
             
-            # Try CSV format (comma-separated)
+            # Try CSV
             try:
                 vector = [float(x.strip()) for x in embedding_str.split(',')]
                 return np.array(vector, dtype=np.float32)
