@@ -101,7 +101,7 @@ class CVDocument(models.Model):
         ('Other', 'Other'),
     ]
     
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='cv_document')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='cv_documents')  # ← CHANGED to ForeignKey
     
     # Personal Info
     full_name = models.CharField(max_length=200)
@@ -117,6 +117,10 @@ class CVDocument(models.Model):
     # Generated Content
     generated_summary = models.TextField(blank=True, default='')
     generated_cv_content = models.JSONField(default=dict, blank=True)
+    
+    # ========== ADD THESE FIELDS ==========
+    is_generated = models.BooleanField(default=False)  # ← ADD THIS
+    # =====================================
     
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)

@@ -17,6 +17,7 @@ urlpatterns = [
     path('<int:cv_id>/preview/', views.cv_preview, name='cv_preview'),
     path('<int:cv_id>/edit/', views.cv_edit, name='cv_edit'),
     path('<int:cv_id>/delete/', views.cv_delete, name='cv_delete'),
+    path('<int:cv_id>/download/', views.cv_download, name='cv_download'),
     
     # Feedback
     path('<int:cv_id>/feedback/', views.cv_feedback, name='cv_feedback'),

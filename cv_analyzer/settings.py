@@ -127,9 +127,8 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-# CV Generator Settings
-import os
-from pathlib import Path
+
+# ========== CV Generator Settings ==========
 
 # OpenAI Configuration
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
@@ -140,3 +139,13 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 # Maximum file size (10MB)
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10485760
+
+# ========== Authentication Settings ==========
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = '/cv/'
+LOGOUT_REDIRECT_URL = '/'
+
+# Authentication Backend
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+]
