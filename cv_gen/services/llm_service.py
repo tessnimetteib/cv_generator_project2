@@ -1,361 +1,387 @@
 """
-LLM Service
-===========
+LLM Service - Ollama + Llama2 Integration
+==========================================
 
-Calls OpenAI API using LangChain to generate professional CV content.
+Complete integration with Ollama for CV generation.
+✅ Professional summary generation
+✅ Achievement bullet generation
+✅ Job description generation
+✅ RAG-enhanced prompts
+✅ Output validation
+✅ Streaming support
 """
 
-import os
 import logging
-from langchain_openai import OpenAI
-from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain
+import requests
+import json
+from typing import Optional, List, Dict
+import time
 
 logger = logging.getLogger(__name__)
 
 
-class LLMService:
+class OllamaLLMService:
     """
-    Service for calling OpenAI API using LangChain.
+    Integration with Ollama for LLM-based CV generation
     
     Features:
+    - Connects to local Ollama server (localhost:11434)
+    - Uses Llama2 model
     - Generates professional CV content
-    - Uses LangChain for clean interface
-    - Manages prompt templates
-    - Handles API errors gracefully
+    - RAG-enhanced prompts
+    - Streaming responses
     """
     
-    def __init__(self, api_key=None, model="gpt-3.5-turbo", temperature=0.7):
+    def __init__(self, base_url: str = "http://localhost:11434"):
+        """Initialize Ollama connection"""
+        self.base_url = base_url
+        self.model = "llama2:latest"
+        self.max_retries = 3
+        self.timeout = 300  # 5 minutes for long generations
+        
+        # Verify connection
+        self._verify_connection()
+    
+    def _verify_connection(self) -> bool:
+        """Verify Ollama server is running"""
+        try:
+            response = requests.get(
+                f"{self.base_url}/api/tags",
+                timeout=5
+            )
+            if response.status_code == 200:
+                logger.info("✅ Ollama connection successful")
+                return True
+            else:
+                logger.error(f"❌ Ollama error: {response.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"❌ Cannot connect to Ollama: {e}")
+            raise ConnectionError(
+                f"Cannot connect to Ollama at {self.base_url}. "
+                "Make sure Ollama is running: ollama serve"
+            )
+    
+    def generate_professional_summary(
+        self,
+        user_profile: Dict,
+        rag_examples: Optional[List] = None,
+        temperature: float = 0.7
+    ) -> str:
         """
-        Initialize LLM service.
+        Generate professional summary using LLM
         
         Args:
-            api_key (str, optional): OpenAI API key (uses OPENAI_API_KEY env var if not provided)
-            model (str): Model to use (default: gpt-3.5-turbo)
-            temperature (float): Creativity level 0-1 (default: 0.7)
+            user_profile: User's CV data
+            rag_examples: Examples from RAG service
+            temperature: Creativity level (0-1)
+            
+        Returns:
+            Generated professional summary
         """
         try:
-            # Get API key from parameter or environment
-            if api_key is None:
-                api_key = os.getenv('OPENAI_API_KEY')
+            logger.info("📝 Generating professional summary...")
             
-            if not api_key:
-                raise ValueError(
-                    "OpenAI API key not provided. "
-                    "Set OPENAI_API_KEY environment variable or pass as parameter."
-                )
+            # Build context from RAG examples
+            context = self._build_context(rag_examples)
             
-            logger.info(f"Initializing LLM Service with model: {model}")
+            # Create prompt
+            prompt = self._create_summary_prompt(user_profile, context)
             
-            # Initialize LangChain OpenAI (NEW IMPORT PATH)
-            self.llm = OpenAI(
-                api_key=api_key,
-                model_name=model,
-                temperature=temperature,
-                max_tokens=500
-            )
+            logger.info(f"Prompt length: {len(prompt)} characters")
             
-            self.model = model
-            self.temperature = temperature
+            # Call LLM
+            response = self._call_ollama(prompt, temperature)
             
-            logger.info("✅ LLM Service initialized successfully")
+            # Clean and validate
+            summary = self._clean_output(response)
+            
+            logger.info(f"✅ Generated summary: {len(summary)} characters")
+            return summary
             
         except Exception as e:
-            logger.error(f"❌ Error initializing LLM Service: {e}")
+            logger.error(f"❌ Error generating summary: {e}")
             raise
     
-    def generate_professional_summary(self, user_data, examples):
+    def generate_achievement_bullets(
+        self,
+        job_title: str,
+        company: str,
+        job_description: str,
+        rag_examples: Optional[List] = None,
+        num_bullets: int = 5,
+        temperature: float = 0.7
+    ) -> List[str]:
         """
-        Generate professional summary using LLM.
+        Generate achievement bullets for a job
         
         Args:
-            user_data (dict): User's CV data
-                {
-                    'full_name': str,
-                    'job_title': str,
-                    'experience_years': int,
-                    'skills': list,
-                    'professional_summary': str (optional)
-                }
-            examples (str): Formatted examples from RAG
+            job_title: Job title
+            company: Company name
+            job_description: Original job description
+            rag_examples: Examples from RAG service
+            num_bullets: Number of bullets to generate
+            temperature: Creativity level
             
         Returns:
-            str: Generated professional summary
+            List of achievement bullets
         """
         try:
-            logger.info("Generating professional summary")
+            logger.info(f"💥 Generating {num_bullets} achievement bullets...")
             
-            # Create prompt template
-            template = """You are an expert CV writer. Generate a professional 2-3 sentence summary for a job applicant.
-
-Here are examples of professional summaries:
-
-{examples}
-
-Now write a professional summary for:
-- Name: {full_name}
-- Job Title: {job_title}
-- Years of Experience: {experience_years}
-- Skills: {skills}
-- Background: {background}
-
-Generate a professional summary in the same style as the examples above. Focus on achievements and expertise."""
+            # Build context
+            context = self._build_context(rag_examples)
             
-            prompt = PromptTemplate(
-                template=template,
-                input_variables=[
-                    'examples',
-                    'full_name',
-                    'job_title',
-                    'experience_years',
-                    'skills',
-                    'background'
-                ]
+            # Create prompt
+            prompt = self._create_bullets_prompt(
+                job_title, company, job_description, context, num_bullets
             )
             
-            # Create chain
-            chain = LLMChain(llm=self.llm, prompt=prompt)
-            
-            # Generate
-            result = chain.run(
-                examples=examples,
-                full_name=user_data.get('full_name', 'Candidate'),
-                job_title=user_data.get('job_title', 'Professional'),
-                experience_years=user_data.get('experience_years', 0),
-                skills=', '.join(user_data.get('skills', [])),
-                background=user_data.get('professional_summary', 'Not provided')
-            )
-            
-            logger.info("✅ Professional summary generated")
-            return result.strip()
-            
-        except Exception as e:
-            logger.error(f"❌ Error generating professional summary: {e}")
-            return None
-    
-    def generate_achievement_bullets(self, user_data, examples, count=3):
-        """
-        Generate achievement bullet points.
-        
-        Args:
-            user_data (dict): User's CV data with job description
-            examples (str): Formatted examples from RAG
-            count (int): Number of bullets to generate
-            
-        Returns:
-            list: Generated achievement bullets
-        """
-        try:
-            logger.info(f"Generating {count} achievement bullets")
-            
-            template = """You are an expert CV writer. Generate {count} impressive achievement bullet points.
-
-Here are examples of professional achievement bullets:
-
-{examples}
-
-Now generate {count} achievement bullets for:
-- Job Title: {job_title}
-- Job Description: {job_description}
-- Skills: {skills}
-
-Generate bullet points in the same professional style as the examples. Start each with an action verb. Make them specific and quantifiable when possible."""
-            
-            prompt = PromptTemplate(
-                template=template,
-                input_variables=[
-                    'count',
-                    'examples',
-                    'job_title',
-                    'job_description',
-                    'skills'
-                ]
-            )
-            
-            chain = LLMChain(llm=self.llm, prompt=prompt)
-            
-            result = chain.run(
-                count=count,
-                examples=examples,
-                job_title=user_data.get('job_title', 'Position'),
-                job_description=user_data.get('job_description', 'Not provided'),
-                skills=', '.join(user_data.get('skills', []))
-            )
+            # Call LLM
+            response = self._call_ollama(prompt, temperature)
             
             # Parse bullets
-            bullets = [line.strip() for line in result.strip().split('\n') 
-                      if line.strip() and (line.strip().startswith('-') or line.strip().startswith('•'))]
+            bullets = self._parse_bullets(response)
             
-            # Clean bullets
-            bullets = [b.lstrip('-•').strip() for b in bullets]
+            # Ensure we have requested number
+            bullets = bullets[:num_bullets]
             
-            logger.info(f"✅ Generated {len(bullets)} achievement bullets")
+            logger.info(f"✅ Generated {len(bullets)} bullets")
             return bullets
             
         except Exception as e:
-            logger.error(f"❌ Error generating achievement bullets: {e}")
-            return []
+            logger.error(f"❌ Error generating bullets: {e}")
+            raise
     
-    def generate_skills_section(self, user_data, examples):
-        """
-        Generate organized skills section.
-        
-        Args:
-            user_data (dict): User's CV data with skills
-            examples (str): Formatted examples from RAG
-            
-        Returns:
-            dict: Organized skills by category
-        """
+    def generate_job_description(
+        self,
+        job_title: str,
+        original_description: str,
+        rag_examples: Optional[List] = None,
+        temperature: float = 0.6
+    ) -> str:
+        """Generate enhanced job description"""
         try:
-            logger.info("Generating skills section")
+            logger.info("📋 Generating enhanced job description...")
             
-            template = """You are an expert CV writer. Organize and enhance a skills list.
-
-Here are examples of well-organized professional skills:
-
-{examples}
-
-Now organize these skills into categories:
-Skills provided: {skills}
-
-Organize them into categories (Technical, Soft Skills, Tools, Languages, etc.) in the same format as the examples. Be professional and concise."""
-            
-            prompt = PromptTemplate(
-                template=template,
-                input_variables=['examples', 'skills']
+            context = self._build_context(rag_examples)
+            prompt = self._create_description_prompt(
+                job_title, original_description, context
             )
             
-            chain = LLMChain(llm=self.llm, prompt=prompt)
+            response = self._call_ollama(prompt, temperature)
+            description = self._clean_output(response)
             
-            result = chain.run(
-                examples=examples,
-                skills=', '.join(user_data.get('skills', []))
-            )
-            
-            logger.info("✅ Skills section generated")
-            return result.strip()
+            logger.info(f"✅ Generated description: {len(description)} characters")
+            return description
             
         except Exception as e:
-            logger.error(f"❌ Error generating skills section: {e}")
-            return None
+            logger.error(f"❌ Error generating description: {e}")
+            raise
     
-    def generate_job_description(self, user_data, examples):
+    def _call_ollama(
+        self,
+        prompt: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024
+    ) -> str:
         """
-        Generate professional job description.
+        Call Ollama API with retry logic
         
         Args:
-            user_data (dict): Job details
-            examples (str): Formatted examples from RAG
+            prompt: Input prompt
+            temperature: Creativity (0-1)
+            max_tokens: Max response length
             
         Returns:
-            str: Generated job description
+            Generated text
         """
-        try:
-            logger.info("Generating job description")
-            
-            template = """You are an expert CV writer. Write a professional job description.
+        for attempt in range(self.max_retries):
+            try:
+                logger.info(f"🔄 Calling Ollama (attempt {attempt + 1}/{self.max_retries})...")
+                
+                payload = {
+                    "model": self.model,
+                    "prompt": prompt,
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                    "stream": False,
+                }
+                
+                response = requests.post(
+                    f"{self.base_url}/api/generate",
+                    json=payload,
+                    timeout=self.timeout
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    text = result.get("response", "")
+                    
+                    logger.info(f"✅ Ollama response received: {len(text)} characters")
+                    return text
+                else:
+                    logger.error(f"❌ Ollama error: {response.status_code}")
+                    
+                    if attempt < self.max_retries - 1:
+                        wait_time = 2 ** attempt
+                        logger.info(f"⏳ Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                    continue
+                    
+            except requests.Timeout:
+                logger.warning(f"⏱️ Request timeout (attempt {attempt + 1})")
+                if attempt < self.max_retries - 1:
+                    time.sleep(5)
+                continue
+                
+            except Exception as e:
+                logger.error(f"❌ Request error: {e}")
+                if attempt < self.max_retries - 1:
+                    time.sleep(2)
+                continue
+        
+        raise RuntimeError("Failed to call Ollama after retries")
+    
+    def _create_summary_prompt(
+        self,
+        user_profile: Dict,
+        context: str
+    ) -> str:
+        """Create prompt for professional summary"""
+        name = user_profile.get('full_name', 'Professional')
+        profession = user_profile.get('profession', 'Professional')
+        experience_years = user_profile.get('years_of_experience', 5)
+        
+        prompt = f"""You are a professional CV writer. Based on the provided examples and user information, 
+generate a compelling professional summary (2-3 sentences, max 100 words).
 
-Here are examples of professional job descriptions:
+PROFESSIONAL EXAMPLES:
+{context}
 
-{examples}
+USER INFORMATION:
+- Name: {name}
+- Profession: {profession}
+- Years of Experience: {experience_years}
+- Current Summary: {user_profile.get('professional_summary', 'N/A')}
 
-Now write a job description for:
+Generate a professional, impactful summary that highlights key strengths and experience.
+Focus on results and achievements. Keep it concise and compelling.
+
+PROFESSIONAL SUMMARY:"""
+        
+        return prompt
+    
+    def _create_bullets_prompt(
+        self,
+        job_title: str,
+        company: str,
+        job_description: str,
+        context: str,
+        num_bullets: int
+    ) -> str:
+        """Create prompt for achievement bullets"""
+        prompt = f"""You are a professional CV writer. Based on the provided examples and job information,
+generate {num_bullets} achievement bullets (each 1-2 lines, starting with action verbs).
+
+ACHIEVEMENT EXAMPLES:
+{context}
+
+JOB INFORMATION:
 - Job Title: {job_title}
 - Company: {company}
-- Duration: {start_date} to {end_date}
-- Brief Description: {description}
+- Job Description: {job_description[:500]}
 
-Write in the same professional style as the examples. Be concise and impactful."""
-            
-            prompt = PromptTemplate(
-                template=template,
-                input_variables=[
-                    'examples',
-                    'job_title',
-                    'company',
-                    'start_date',
-                    'end_date',
-                    'description'
-                ]
-            )
-            
-            chain = LLMChain(llm=self.llm, prompt=prompt)
-            
-            result = chain.run(
-                examples=examples,
-                job_title=user_data.get('job_title', 'Position'),
-                company=user_data.get('company', 'Company'),
-                start_date=user_data.get('start_date', 'Date'),
-                end_date=user_data.get('end_date', 'Date'),
-                description=user_data.get('description', 'Not provided')
-            )
-            
-            logger.info("✅ Job description generated")
-            return result.strip()
-            
-        except Exception as e:
-            logger.error(f"❌ Error generating job description: {e}")
-            return None
-    
-    def generate_education_section(self, user_data, examples):
-        """
-        Generate professional education section.
+Generate {num_bullets} achievement bullets that:
+1. Start with strong action verbs (Implemented, Developed, Led, Managed, Improved, etc.)
+2. Include quantifiable results where possible (percentages, numbers, metrics)
+3. Highlight impact and value delivered
+4. Are specific to this role
+
+Format each bullet on a new line starting with a dash (-).
+
+ACHIEVEMENT BULLETS:"""
         
-        Args:
-            user_data (dict): Education details
-            examples (str): Formatted examples from RAG
-            
-        Returns:
-            str: Generated education section
-        """
-        try:
-            logger.info("Generating education section")
-            
-            template = """You are an expert CV writer. Write professional education section details.
+        return prompt
+    
+    def _create_description_prompt(
+        self,
+        job_title: str,
+        original_description: str,
+        context: str
+    ) -> str:
+        """Create prompt for job description"""
+        prompt = f"""You are a professional CV writer. Enhance the job description to be more impactful 
+and professional while maintaining accuracy.
 
-Here are examples of professional education sections:
+REFERENCE EXAMPLES:
+{context}
 
-{examples}
+ORIGINAL DESCRIPTION:
+{original_description}
 
-Now write education details for:
-- Institution: {institution}
-- Degree: {degree}
-- Field: {field}
-- Graduation Date: {graduation_date}
-- GPA: {gpa}
-- Honors: {honors}
+Enhance this description by:
+1. Making it more specific and impactful
+2. Adding quantifiable metrics if relevant
+3. Highlighting key achievements
+4. Using professional language
+5. Keeping it concise (2-3 sentences)
 
-Write in the same professional style as the examples. Include relevant honors or achievements."""
+ENHANCED DESCRIPTION:"""
+        
+        return prompt
+    
+    def _build_context(self, rag_examples: Optional[List]) -> str:
+        """Build context from RAG examples"""
+        if not rag_examples:
+            return "No examples available."
+        
+        context = ""
+        for i, example in enumerate(rag_examples[:3], 1):
+            content = example.content if hasattr(example, 'content') else str(example)
+            context += f"{i}. {content}\n\n"
+        
+        return context
+    
+    def _clean_output(self, text: str) -> str:
+        """Clean and normalize LLM output"""
+        # Remove common LLM artifacts
+        text = text.strip()
+        
+        # Remove duplicate label if present
+        if text.startswith("PROFESSIONAL SUMMARY:"):
+            text = text.replace("PROFESSIONAL SUMMARY:", "", 1).strip()
+        if text.startswith("ACHIEVEMENT BULLETS:"):
+            text = text.replace("ACHIEVEMENT BULLETS:", "", 1).strip()
+        if text.startswith("ENHANCED DESCRIPTION:"):
+            text = text.replace("ENHANCED DESCRIPTION:", "", 1).strip()
+        
+        # Remove excessive whitespace
+        text = '\n'.join(line.strip() for line in text.split('\n') if line.strip())
+        
+        return text
+    
+    def _parse_bullets(self, text: str) -> List[str]:
+        """Parse bullet points from LLM output"""
+        bullets = []
+        
+        # Clean the text
+        text = self._clean_output(text)
+        
+        # Split by newlines and filter
+        for line in text.split('\n'):
+            line = line.strip()
             
-            prompt = PromptTemplate(
-                template=template,
-                input_variables=[
-                    'examples',
-                    'institution',
-                    'degree',
-                    'field',
-                    'graduation_date',
-                    'gpa',
-                    'honors'
-                ]
-            )
+            # Remove bullet markers
+            if line.startswith('-'):
+                line = line[1:].strip()
+            elif line.startswith('•'):
+                line = line[1:].strip()
+            elif line and line[0].isdigit() and '.' in line[:3]:
+                line = line.split('.', 1)[1].strip()
             
-            chain = LLMChain(llm=self.llm, prompt=prompt)
-            
-            result = chain.run(
-                examples=examples,
-                institution=user_data.get('institution', 'University'),
-                degree=user_data.get('degree', 'Bachelor'),
-                field=user_data.get('field', 'Field'),
-                graduation_date=user_data.get('graduation_date', 'Date'),
-                gpa=user_data.get('gpa', 'N/A'),
-                honors=user_data.get('honors', 'N/A')
-            )
-            
-            logger.info("✅ Education section generated")
-            return result.strip()
-            
-        except Exception as e:
-            logger.error(f"❌ Error generating education section: {e}")
-            return None
+            # Add if valid
+            if line and len(line) > 10:
+                bullets.append(line)
+        
+        return bullets

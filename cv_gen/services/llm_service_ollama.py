@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 LLM Service with Ollama + Llama2
 ==================================
@@ -105,7 +106,7 @@ Now write a professional summary for:
 - Skills: {', '.join(user_data.get('skills', []))}
 - Background: {user_data.get('professional_summary', 'Not provided')}
 
-Generate a professional summary in the same style as the examples above. Focus on achievements and expertise."""
+Generate a professional summary in the same style as the examples above. Focus on achievements and expertise. Output ONLY the summary text, no introduction or explanation."""
             
             result = self._generate(prompt)
             
@@ -125,31 +126,62 @@ Generate a professional summary in the same style as the examples above. Focus o
         try:
             logger.info(f"Generating {count} achievement bullets with Llama2...")
             
-            prompt = f"""You are an expert CV writer. Generate {count} impressive achievement bullet points.
+            prompt = f"""You are an expert CV writer. Your job is to generate EXACTLY {count} achievement bullet points. 
+
+CRITICAL INSTRUCTIONS:
+- Output ONLY bullet points
+- NO introduction, NO explanation, NO preamble
+- Start each line with a dash (-)
+- Each bullet should be 1-2 lines
+- Use action verbs (Developed, Led, Managed, Implemented, Optimized, etc.)
+- Include quantifiable results (numbers, percentages, metrics)
 
 Here are examples of professional achievement bullets:
 
 {examples}
 
-Now generate {count} achievement bullets for:
+Generate {count} achievement bullets for:
 - Job Title: {user_data.get('job_title', 'Position')}
 - Job Description: {user_data.get('job_description', 'Not provided')}
 - Skills: {', '.join(user_data.get('skills', []))}
 
-Generate bullet points in the same professional style as the examples. Start each with an action verb. Make them specific and quantifiable when possible. Format with dashes (-)."""
+OUTPUT EXACTLY {count} BULLETS WITH DASHES - NOTHING ELSE:"""
             
             result = self._generate(prompt)
             
             if result:
-                # Parse bullets
-                bullets = [line.strip() for line in result.strip().split('\n') 
-                          if line.strip() and (line.strip().startswith('-') or 
-                                              line.strip().startswith('•') or
-                                              line.strip().startswith('*') or
-                                              (len(line.strip()) > 10 and line.strip()[0].isalpha()))]
+                # Parse bullets - more robust parsing
+                lines = result.strip().split('\n')
+                bullets = []
                 
-                # Clean bullets
-                bullets = [b.lstrip('-•* ').strip() for b in bullets if b.strip()]
+                for line in lines:
+                    line = line.strip()
+                    
+                    # Skip empty lines
+                    if not line:
+                        continue
+                    
+                    # Skip preamble/intro lines (common phrases to skip)
+                    if any(skip in line.lower() for skip in ['here are', 'sure', 'certainly', 'of course', 'here is', "i'll", 'let me']):
+                        continue
+                    
+                    # Extract bullet text
+                    if line.startswith('-'):
+                        bullet_text = line[1:].strip()
+                    elif line.startswith('•'):
+                        bullet_text = line[1:].strip()
+                    elif line.startswith('*'):
+                        bullet_text = line[1:].strip()
+                    elif len(line) > 10 and line[0].isdigit() and '.' in line[:3]:
+                        # Handle numbered bullets like "1. text"
+                        bullet_text = line.split('.', 1)[1].strip()
+                    else:
+                        # Skip lines that don't look like bullets
+                        continue
+                    
+                    # Add if it's a valid bullet (has meaningful content)
+                    if bullet_text and len(bullet_text) > 15:
+                        bullets.append(bullet_text)
                 
                 logger.info(f"✅ Generated {len(bullets)} achievement bullets")
                 return bullets[:count]

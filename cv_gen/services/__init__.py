@@ -1,22 +1,13 @@
-"""
-CV Generation Services
-=====================
+"""CV Generation Services"""
 
-All services for RAG + LLM CV generation:
-- EmbeddingService: Convert text to vectors
-- EnhancedRAGService: Full RAG with profession filtering
-- LLMServiceOllama: Ollama + Llama2 integration
-- EnhancedCVGenerationService: Main orchestration
-"""
-
-from .embedding_service import EmbeddingService
 from .rag_service import EnhancedRAGService
+from .embedding_service import EmbeddingService
 from .llm_service_ollama import LLMServiceOllama
-from .cv_generation_service import EnhancedCVGenerationService
+from .generation_service import CVGenerationService
 
 __all__ = [
-    'EmbeddingService',
     'EnhancedRAGService',
+    'EmbeddingService',
     'LLMServiceOllama',
-    'EnhancedCVGenerationService',
+    'CVGenerationService',
 ]

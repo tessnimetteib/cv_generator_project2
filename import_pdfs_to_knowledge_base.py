@@ -16,6 +16,34 @@ import json
 
 PDF_BASE_PATH = r"C:\Users\DELL\Desktop\resume_dataset\data\data"
 
+# Mapping of folder names to professions
+PROFESSION_MAPPING = {
+    'ACCOUNTANT': 'Accountant',
+    'ADVOCATE': 'Advocate',
+    'AGRICULTURE': 'Agriculture',
+    'APPAREL': 'Apparel',
+    'ARTS': 'Arts',
+    'AUTOMOBILE': 'Automobile',
+    'AVIATION': 'Aviation',
+    'BANKING': 'Banking',
+    'BPO': 'BPO',
+    'BUSINESS-DEVELOPMENT': 'Business Development',
+    'CHEF': 'Chef',
+    'CONSTRUCTION': 'Construction',
+    'CONSULTANT': 'Consultant',
+    'DESIGNER': 'Designer',
+    'DIGITAL-MEDIA': 'Digital Media',
+    'ENGINEERING': 'Engineering',
+    'FINANCE': 'Finance',
+    'FITNESS': 'Fitness',
+    'HEALTHCARE': 'Healthcare',
+    'HR': 'HR',
+    'INFORMATION-TECHNOLOGY': 'Backend Developer',  # Map IT to Backend Developer
+    'PUBLIC-RELATIONS': 'Public Relations',
+    'SALES': 'Sales',
+    'TEACHER': 'Teacher',
+}
+
 
 class ResumeParser:
     """Parse resume PDF text"""
@@ -160,8 +188,11 @@ class PDFImporter:
         return total_entries
     
     def _create_kb_entries(self, parser, category, pdf_file):
-        """Create KB entries"""
+        """Create KB entries with correct profession"""
         entries = []
+        
+        # Get profession from mapping
+        profession = PROFESSION_MAPPING.get(category, 'General')
         
         try:
             summary = parser.extract_summary()
@@ -171,7 +202,7 @@ class PDFImporter:
                     'title': f"{category} Summary",
                     'content': summary,
                     'category': 'summary',
-                    'profession': 'General',
+                    'profession': profession,  # ✅ USE MAPPED PROFESSION
                     'cv_section': 'summary',
                     'embedding_vector': json.dumps(embedding.tolist())
                 })
@@ -185,7 +216,7 @@ class PDFImporter:
                             'title': f"{category} Achievement",
                             'content': achievement,
                             'category': 'achievement',
-                            'profession': 'General',
+                            'profession': profession,  # ✅ USE MAPPED PROFESSION
                             'cv_section': 'achievement',
                             'embedding_vector': json.dumps(embedding.tolist())
                         })
@@ -201,7 +232,7 @@ class PDFImporter:
                         'title': f"{category} Skills",
                         'content': skills_text,
                         'category': 'skill',
-                        'profession': 'General',
+                        'profession': profession,  # ✅ USE MAPPED PROFESSION
                         'cv_section': 'skill',
                         'embedding_vector': json.dumps(embedding.tolist())
                     })
@@ -214,7 +245,7 @@ class PDFImporter:
 def main():
     """Main execution"""
     print("\n" + "="*80)
-    print("Resume PDF to Knowledge Base Import")
+    print("Resume PDF to Knowledge Base Import (WITH PROFESSION MAPPING)")
     print("="*80 + "\n")
     
     importer = PDFImporter()
