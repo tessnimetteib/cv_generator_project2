@@ -4,6 +4,15 @@
 
 {% block content %}
 <div class="max-w-5xl mx-auto">
+    <!-- Generate with AI Button -->
+    <form method="post" class="mb-8 text-center">
+        {% csrf_token %}
+        <button type="submit" name="action" value="generate"
+                class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 px-8 rounded-lg transition duration-200 text-lg">
+            ✨ Generate with AI
+        </button>
+    </form>
+
     <!-- Header -->
     <div class="text-center mb-8">
         <h2 class="text-4xl font-bold text-gray-800 mb-4">{{ cv.full_name }}'s CV Preview</h2>
